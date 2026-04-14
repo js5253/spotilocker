@@ -1,10 +1,13 @@
 use anyhow::anyhow;
 use axum::{
+    Error,
     body::Body,
     extract::{Query, State},
     response::{IntoResponse, Response},
 };
 use base64::{engine::general_purpose::STANDARD, prelude::*};
+use log::info;
+use reqwest::StatusCode;
 use serde::Deserialize;
 
 use crate::AppState;
@@ -24,42 +27,47 @@ pub struct SpotifyRequestBody {
 pub async fn login_callback(
     params: Query<OAuthCallbackResponse>,
     State(app_state): State<AppState>,
-) -> Response {
+) -> axum::response::Result<String, Response> {
     if params.state.is_empty() {
-        return Response::builder()
-            .status(500)
-            .body(Body::from(()))
-            .unwrap();
+        return Err((StatusCode::UNPROCESSABLE_ENTITY).into_response());
     }
     if let Some(error) = &params.error {
-        return Response::builder()
-            .status(500)
-            .body(Body::from(error.clone()))
-            .unwrap();
+        return Err((StatusCode::INTERNAL_SERVER_ERROR, ()).into_response());
     }
     let param = [
         ("code", params.code.clone()),
         ("redirect_uri", format!("{}callback", app_state.app_url)),
         ("grant_type", "authorization_code".to_string()),
     ];
-    println!("Sending req soon...!");
+    info!("Sending req soon...!");
+    let auth_header = format!(
+        "Basic {}",
+        STANDARD.encode(format!(
+            "{}:{}",
+            app_state.client_id, app_state.client_secret
+        ))
+    );
     let req = app_state
         .http_client
         .post("https://accounts.spotify.com/api/token")
         .form(&param)
         .header("Content-type", "application/x-www-form-urlencoded")
-        .header(
-            "Authorization",
-            STANDARD.encode(format!(
-                "{}:{}",
-                app_state.client_id, app_state.client_secret
-            )),
-        )
+        .header("Authorization", auth_header)
         .send()
-        .await;
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")).into_response())?;
 
-    match req {
-        Ok(val) => return format!("{}", val.text().await.unwrap()).into_response(),
-        Err(e) => return format!("ERROR").into_response(),
-    }
+    let body = req
+        .error_for_status()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")).into_response())?
+        .text()
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")).into_response())?;
+    Ok(body.to_string())
+    // let req = match req {
+    //     Ok(val) => {
+    //         if val.status() == 400 Err("400 Forbdden Response")
+    //     },
+    //     Err(e) => format!("Hi"),
+    // }
 }
