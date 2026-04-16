@@ -1,5 +1,7 @@
 mod models;
 mod routes;
+mod api;
+
 use axum::{Router, routing::get};
 use dotenvy::dotenv;
 use reqwest;
@@ -8,6 +10,8 @@ use std::env;
 
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
+
+const REQUIRED_USER_PERMS: &str = "user-read-private user-read-email user-library-read user-follow-read playlist-read-private";
 
 use crate::models::Track;
 const ADDR_TO_BIND: &str = "0.0.0.0:3000";
@@ -32,7 +36,7 @@ async fn main() {
         )
         .init();
     // build our application with a single route
-    dotenv().expect("Missing .env");
+    dotenv().expect("Missing .env - copy .env.example and fill out.");
     let state = AppState {
         client_id: env::var("CLIENT_ID").expect("Missing Client ID on .env"),
         app_url: env::var("SERVER_URL").expect("Missing Server URL on .env"),
@@ -46,12 +50,12 @@ async fn main() {
         .route(
             "/",
             get(|| async {
-                let pear = Track::ActiveModel {
-                    name: Set("Pear".to_owned()),
-                    ..Default::default() // all other attributes are `NotSet`
-                };
+                // let pear = Track::ActiveModel {
+                //     name: Set("Pear".to_owned()),
+                //     ..Default::default() // all other attributes are `NotSet`
+                // };
 
-                let pear: Track::Model = pear.insert(state.db).await;
+                // let pear: Track::Model = pear.insert(state.db).await;
             }),
         )
         .route("/login", get(routes::login))
