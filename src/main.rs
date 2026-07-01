@@ -1,11 +1,12 @@
 mod models;
 mod routes;
 mod api;
+mod errors;
 
 use axum::{Router, routing::get};
 use dotenvy::dotenv;
 use reqwest;
-use sea_orm::{ActiveValue::Set, Database, DatabaseConnection};
+use sqlx::{Pool, Sqlite, sqlite::SqlitePoolOptions};
 use std::env;
 
 use tower_http::trace::TraceLayer;
@@ -13,15 +14,15 @@ use tracing_subscriber::EnvFilter;
 
 const REQUIRED_USER_PERMS: &str = "user-read-private user-read-email user-library-read user-follow-read playlist-read-private";
 
-use crate::models::Track;
 const ADDR_TO_BIND: &str = "0.0.0.0:3000";
-#[derive(Default, Clone)]
+
+#[derive(Clone)]
 struct AppState {
     client_id: String,
     client_secret: String,
     app_url: String,
     http_client: reqwest::Client,
-    db: DatabaseConnection,
+    db: Pool<Sqlite>,
 }
 
 #[tokio::main]
@@ -37,14 +38,17 @@ async fn main() {
         .init();
     // build our application with a single route
     dotenv().expect("Missing .env - copy .env.example and fill out.");
+    let pool = SqlitePoolOptions::new().max_connections(5).connect(env::var("DATABASE_URL").expect("Could not find SQLite Database URL").as_str()).await.expect("Could not connect to database.");
+
     let state = AppState {
         client_id: env::var("CLIENT_ID").expect("Missing Client ID on .env"),
         app_url: env::var("SERVER_URL").expect("Missing Server URL on .env"),
         client_secret: env::var("CLIENT_SECRET").expect("Missing Client Secret on .env"),
         http_client: reqwest::Client::new(),
-        db: Database::connect(env::var("DATABASE_URL").expect("Missing DB URL"))
-            .await
-            .expect("Could not connect to database"),
+        db: pool
+        // db: Database::connect(.expect("Missing DB URL"))
+        //     .await
+        //     .expect("Could not connect to database"),
     };
     let app = Router::new()
         .route(
@@ -58,8 +62,10 @@ async fn main() {
                 // let pear: Track::Model = pear.insert(state.db).await;
             }),
         )
-        .route("/login", get(routes::login))
+        // .route("/login", get(routes::app_login))
+        .route("/spotify_login", get(routes::login))
         .route("/callback", get(routes::login_callback))
+        .route("/top_songs", get(routes::top_songs))
         .route("/library", get(routes::refresh_library))
         .layer(TraceLayer::new_for_http())
         .with_state(state);
